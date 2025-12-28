@@ -1,0 +1,160 @@
+version: "3.8"
+
+services:
+  frontend:
+    image: healthcare/frontend:latest
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8086:80"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      - frontend
+      - backend
+
+  api-gateway:
+    image: healthcare/api-gateway:latest
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      NODE_ENV: production
+      KEYCLOAK_URL: http://keycloak:8080
+      REDIS_HOST: redis
+      APPOINTMENT_SERVICE_URL: http://appointment-service:3001
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: keycloak
+      DB_USER: keycloak
+      DB_PASSWORD: keycloak
+    deploy:
+      replicas: 1
+    networks:
+      - frontend
+      - backend
+
+  appointment-service:
+    image: healthcare/appointment-service:latest
+    build:
+      context: ./services/appointment-service
+      dockerfile: Dockerfile
+    environment:
+      PORT: "3001"
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: keycloak
+      DB_USER: keycloak
+      DB_PASSWORD: keycloak
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+    networks:
+      - backend
+      - frontend
+
+  notification-service:
+    image: healthcare/notification-service:latest
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    environment:
+      PORT: "3002"
+      NODE_ENV: production
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      - backend
+      - frontend
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    ports:
+      - "8080:8080"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+    # Use exec form for command
+    entrypoint: ["/opt/keycloak/bin/kc.sh"]
+    command: ["start-dev", "--import-realm"]
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+      placement:
+        constraints:
+          - node.role == manager
+    networks:
+      - frontend
+      - backend
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+    networks:
+      - backend
+    ports:
+      - target: 5432
+        published: 5432
+        protocol: tcp
+        mode: host
+
+  redis:
+    image: redis:7-alpine
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      - backend
+
+networks:
+  frontend:
+    driver: overlay
+    attachable: true
+  backend:
+    driver: overlay
+    internal: true
+    attachable: true
+
+volumes:
+  postgres_data:
+    driver: local

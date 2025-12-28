@@ -1,0 +1,7 @@
+{
+  "scripts": {
+    "remove-stack": "docker stack rm healthcare",
+    "build-deploy": "docker build -t healthcare/frontend:latest ./services/frontend -f ./services/frontend/Dockerfile && docker build -t healthcare/api-gateway:latest ./services/api-gateway -f ./services/api-gateway/Dockerfile && docker build -t healthcare/appointment-service:latest ./services/appointment-service -f ./services/appointment-service/Dockerfile  && docker build -t healthcare/notification-service:latest ./services/notification-service -f ./services/notification-service/Dockerfile  && docker stack deploy -c docker-stack.yml healthcare",
+    "scan-project": "scan-project.sh"
+  }
+}

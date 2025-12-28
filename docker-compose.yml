@@ -1,0 +1,130 @@
+services:
+  frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8086:80"
+    depends_on:
+      - api-gateway
+      - keycloak
+    networks:
+      - frontend
+      - backend
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      NODE_ENV: development
+      KEYCLOAK_URL: http://keycloak:8080
+      REDIS_HOST: redis
+      APPOINTMENT_SERVICE_URL: http://appointment-service:3001
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: keycloak
+      DB_USER: keycloak
+      DB_PASSWORD: keycloak
+    depends_on:
+      - keycloak
+      - redis
+    networks:
+      - frontend
+      - backend
+
+  appointment-service:
+    build:
+      context: ./services/appointment-service
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: keycloak
+      DB_USER: keycloak
+      DB_PASSWORD: keycloak
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - backend
+      - frontend
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: "3002"
+      NODE_ENV: development
+      REDIS_HOST: redis
+    depends_on:
+      - redis
+    networks:
+      - backend
+      - frontend
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    entrypoint: ["/opt/keycloak/bin/kc.sh"]
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "8080:8080"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_IMPORT: /opt/keycloak/data/import/realm-export.json
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      - backend
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_data:
